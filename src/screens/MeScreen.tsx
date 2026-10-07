@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Sun, Moon, Monitor, Download, Trash2, ChevronRight, Palette, Database, Tag, CreditCard, Users, ShieldCheck } from 'lucide-react'
+import { Sun, Moon, Monitor, Download, Trash2, ChevronRight, Palette, Database, Tag, CreditCard, Users, ShieldCheck, Smartphone, CheckCircle2 } from 'lucide-react'
 import { db, type ThemeMode } from '../lib/db'
 import { useThemeStore, useToastStore } from '../store'
 import { loadDemoData } from '../lib/init'
@@ -9,6 +9,7 @@ import CategoryManagerSheet from '../components/CategoryManagerSheet'
 import AddAccountModal from '../components/AddAccountModal'
 import AddFriendModal from '../components/AddFriendModal'
 import { useAuthStore } from '../lib/auth/store'
+import { usePwaStore } from '../lib/pwa/pwaStore'
 import AuthSheet from './auth/AuthSheet'
 import AccountScreen from './auth/AccountScreen'
 import { User as UserIcon } from 'lucide-react'
@@ -24,6 +25,7 @@ export default function MeScreen() {
   const [showAccountScreen, setShowAccountScreen] = useState(false)
 
   const { user, status } = useAuthStore()
+  const { isInstalled, platform, promptInstall, resetDismissal } = usePwaStore()
 
   const transactions = useLiveQuery(() => db.transactions.count()) ?? 0
   const categories   = useLiveQuery(() => db.categories.count()) ?? 0
@@ -324,6 +326,48 @@ export default function MeScreen() {
           />
         </Section>
 
+        {/* App & Offline (PWA) */}
+        <Section title="App & Offline" icon={<Smartphone size={15} />}>
+          {isInstalled ? (
+            <SettingRow
+              icon={<CheckCircle2 size={17} color="var(--primary)" />}
+              label="App Installed"
+              sublabel="Running in standalone mode • 100% offline capable"
+              onClick={() => {
+                addToast({
+                  message: 'PaisaPal is installed and running in standalone mode.',
+                  type: 'info',
+                })
+              }}
+            />
+          ) : (
+            <SettingRow
+              icon={<Download size={17} color="var(--primary)" />}
+              label="Install PaisaPal"
+              sublabel={
+                platform === 'ios'
+                  ? 'Tap to view iOS Home Screen installation instructions'
+                  : 'Install app on your device for 1-tap offline access'
+              }
+              onClick={async () => {
+                resetDismissal()
+                const res = await promptInstall()
+                if (res === 'accepted') {
+                  addToast({
+                    message: 'PaisaPal installed successfully! Launch it from your home screen.',
+                    type: 'success',
+                  })
+                } else if (res === 'unsupported') {
+                  addToast({
+                    message: 'Use your browser menu (⋮ or Share) to add PaisaPal to your Home Screen.',
+                    type: 'info',
+                  })
+                }
+              }}
+            />
+          )}
+        </Section>
+
         {/* Data */}
         <Section title="Data" icon={<Database size={15} />}>
           <SettingRow
@@ -371,7 +415,7 @@ export default function MeScreen() {
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8, color: 'var(--primary)' }}>
             <ShieldCheck size={28} strokeWidth={1.75} />
           </div>
-          <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>Pocket</div>
+          <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>PaisaPal</div>
           <div style={{ fontSize: 12 }}>Local-first finance manager.</div>
         </div>
       </div>

@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Home, BarChart2, Plus, PiggyBank, User } from 'lucide-react'
 import { useNavStore, useSettingsStore, useThemeStore, type TabId } from '../store'
 import ToastContainer from './ui/ToastContainer'
+import PwaInstallBanner from './pwa/PwaInstallBanner'
+import PwaIosInstructionsModal from './pwa/PwaIosInstructionsModal'
+import { usePwaStore } from '../lib/pwa/pwaStore'
 
 // Lazy-loaded tab screens
 const HomeScreen     = React.lazy(() => import('../screens/HomeScreen'))
@@ -22,15 +25,22 @@ export default function AppShell() {
   const { activeTab, setActiveTab, isAddSheetOpen, openAddSheet, closeAddSheet } = useNavStore()
   const { loadSettings } = useSettingsStore()
   const { _syncResolved } = useThemeStore()
+  const { isIosModalOpen, setIsIosModalOpen, initPwa } = usePwaStore()
 
   useEffect(() => {
     loadSettings()
+    const cleanupPwa = initPwa()
+
     // Listen for system theme changes
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const handler = () => _syncResolved()
     mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [])
+
+    return () => {
+      cleanupPwa()
+      mq.removeEventListener('change', handler)
+    }
+  }, [initPwa, loadSettings, _syncResolved])
 
   // Keyboard shortcut: N = open add sheet
   useEffect(() => {
@@ -140,6 +150,16 @@ export default function AppShell() {
           <React.Suspense fallback={null}>
             <AddSheet onClose={closeAddSheet} />
           </React.Suspense>
+        )}
+      </AnimatePresence>
+
+      {/* ── PWA Installation Prompt Banner ── */}
+      <PwaInstallBanner />
+
+      {/* ── iOS Add-to-Home Instructions Modal ── */}
+      <AnimatePresence>
+        {isIosModalOpen && (
+          <PwaIosInstructionsModal onClose={() => setIsIosModalOpen(false)} />
         )}
       </AnimatePresence>
 
