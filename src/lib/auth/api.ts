@@ -15,10 +15,15 @@ export interface ApiResponse<T = unknown> {
 }
 
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
+  const controller = new AbortController();
+  const timeoutMs = 12000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     const res = await fetch(path, {
       ...options,
       credentials: 'same-origin',
+      signal: options.signal || controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...options.headers,
@@ -28,16 +33,25 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
+      let friendlyError = data.error || `Request failed with status ${res.status}`;
+      if (friendlyError.includes('SSL alert') || friendlyError.includes('MongoServerSelectionError')) {
+        friendlyError = 'Database connection issue. Please try again in a moment.';
+      }
       return {
         ok: false,
-        error: data.error || `Request failed with status ${res.status}`,
+        error: friendlyError,
       };
     }
 
     return data;
   } catch (err: unknown) {
+    if (err instanceof Error && (err.name === 'AbortError' || err.message.includes('aborted'))) {
+      return { ok: false, error: 'Request timed out. Please check your network and try again.' };
+    }
     const message = err instanceof Error ? err.message : 'Network connection error';
     return { ok: false, error: message };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

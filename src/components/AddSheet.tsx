@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, Mic, Camera, Send, Delete, Plus, X, Users, UserPlus, Sparkles } from 'lucide-react'
+import { Check, Mic, Camera, Send, Delete, Plus, X, Users, UserPlus, Sparkles, Trash2, AlertTriangle } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { v4 as uuid } from 'uuid'
 import { format } from 'date-fns'
-import { db, type TxType, type Category } from '../lib/db'
+import { db, type TxType, type Category, type Transaction } from '../lib/db'
 import { useToastStore } from '../store'
 import { formatAmount, parseToPaise } from '../lib/currency'
 import { parseNaturalLanguage } from '../lib/parser'
@@ -14,7 +14,10 @@ import AddAccountModal from './AddAccountModal'
 import AddFriendModal from './AddFriendModal'
 
 /* ─── Types ─── */
-interface AddSheetProps { onClose: () => void }
+interface AddSheetProps {
+  onClose: () => void
+  editTxn?: Transaction | null
+}
 
 const SEGMENTS: { id: TxType; label: string; color: string }[] = [
   { id: 'expense',  label: 'Expense',  color: 'var(--expense)'  },
@@ -24,22 +27,25 @@ const SEGMENTS: { id: TxType; label: string; color: string }[] = [
 
 const KEYPAD = ['1','2','3','4','5','6','7','8','9','.','0','⌫']
 
-export default function AddSheet({ onClose }: AddSheetProps) {
-  const [txType, setTxType] = useState<TxType>('expense')
-  const [amountStr, setAmountStr] = useState('0')
-  const [selectedCatId, setSelectedCatId] = useState<string | null>(null)
-  const [note, setNote] = useState('')
-  const [date, setDate] = useState<Date>(new Date())
+export default function AddSheet({ onClose, editTxn }: AddSheetProps) {
+  const [txType, setTxType] = useState<TxType>(editTxn?.type ?? 'expense')
+  const [amountStr, setAmountStr] = useState(editTxn ? (editTxn.amount / 100).toString() : '0')
+  const [selectedCatId, setSelectedCatId] = useState<string | null>(editTxn?.categoryId ?? null)
+  const [note, setNote] = useState(editTxn?.note ?? '')
+  const [date, setDate] = useState<Date>(editTxn?.date ? new Date(editTxn.date) : new Date())
   const [showKeypad, setShowKeypad] = useState(false)
   const [nlInput, setNlInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved]   = useState(false)
-  const [accountId, setAccountId] = useState<string>('')
+  const [accountId, setAccountId] = useState<string>(editTxn?.accountId ?? '')
   const [isListening, setIsListening] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // Split with friends
-  const [splitEnabled, setSplitEnabled] = useState(false)
-  const [selectedFriends, setSelectedFriends] = useState<string[]>([])
+  const [splitEnabled, setSplitEnabled] = useState(Boolean(editTxn?.split && editTxn.split.length > 0))
+  const [selectedFriends, setSelectedFriends] = useState<string[]>(
+    editTxn?.split ? editTxn.split.map(s => s.friendId) : []
+  )
   const [showAddFriend, setShowAddFriend] = useState(false)
 
   // Modals for custom category & account
@@ -147,6 +153,42 @@ export default function AddSheet({ onClose }: AddSheetProps) {
       return
     }
 
+    // Calculate friend split if enabled
+    let splitData: { friendId: string; share: number; settled: boolean }[] | undefined
+    if (splitEnabled && selectedFriends.length > 0) {
+      const totalPeople = selectedFriends.length + 1
+      const perPersonShare = Math.round(paise / totalPeople)
+      splitData = selectedFriends.map(fId => ({
+        friendId: fId,
+        share: perPersonShare,
+        settled: false,
+      }))
+    }
+
+    // Update existing transaction
+    if (editTxn) {
+      setSaving(true)
+      await db.transactions.update(editTxn.id, {
+        type: txType,
+        amount: paise,
+        categoryId: selectedCatId ?? undefined,
+        accountId,
+        note: note || undefined,
+        date: date.getTime(),
+        split: splitData,
+        updatedAt: Date.now(),
+      })
+      setSaved(true)
+      addToast({
+        message: `${formatAmount(paise)} transaction updated`,
+        type: 'success',
+      })
+      setTimeout(() => {
+        onClose()
+      }, 400)
+      return
+    }
+
     // Duplicate guard: same amount + category within 2 minutes
     const twoMinAgo = Date.now() - 2 * 60 * 1000
     const recent = await db.transactions
@@ -160,18 +202,6 @@ export default function AddSheet({ onClose }: AddSheetProps) {
     }
 
     setSaving(true)
-
-    // Calculate friend split if enabled
-    let splitData: { friendId: string; share: number; settled: boolean }[] | undefined
-    if (splitEnabled && selectedFriends.length > 0) {
-      const totalPeople = selectedFriends.length + 1
-      const perPersonShare = Math.round(paise / totalPeople)
-      splitData = selectedFriends.map(fId => ({
-        friendId: fId,
-        share: perPersonShare,
-        settled: false,
-      }))
-    }
 
     const txn = {
       id: uuid(),
@@ -206,6 +236,13 @@ export default function AddSheet({ onClose }: AddSheetProps) {
     setTimeout(() => {
       onClose()
     }, 600)
+  }
+
+  const handleDeleteTransaction = async () => {
+    if (!editTxn) return
+    await db.transactions.delete(editTxn.id)
+    addToast({ message: 'Transaction deleted', type: 'info' })
+    onClose()
   }
 
   // Duplicate dialog
@@ -299,8 +336,32 @@ export default function AddSheet({ onClose }: AddSheetProps) {
             >
               Cancel
             </button>
-            <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>New Entry</span>
-            <div style={{ width: 44 }} />
+            <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>
+              {editTxn ? `Edit ${txType.charAt(0).toUpperCase() + txType.slice(1)}` : 'New Entry'}
+            </span>
+            {editTxn ? (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                aria-label="Delete transaction"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--expense)',
+                  cursor: 'pointer',
+                  padding: '4px 6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: 'unset',
+                  minWidth: 'unset',
+                }}
+              >
+                <Trash2 size={18} strokeWidth={2} />
+              </button>
+            ) : (
+              <div style={{ width: 44 }} />
+            )}
           </div>
 
           {/* ── Segmented Control ── */}
@@ -357,13 +418,45 @@ export default function AddSheet({ onClose }: AddSheetProps) {
                   outline: 'none',
                 }}
               />
-              <button
-                type="button"
-                onClick={e => { e.stopPropagation() }}
-                style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '3px 8px', color: 'var(--text-muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', minHeight: 'unset' }}
+              <label
+                style={{
+                  position: 'relative',
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '3px 8px',
+                  color: 'var(--text-muted)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+                onClick={e => e.stopPropagation()}
               >
                 {format(date, 'd MMM')}
-              </button>
+                <input
+                  type="date"
+                  value={format(date, 'yyyy-MM-dd')}
+                  onChange={e => {
+                    if (e.target.value) {
+                      const [y, m, d] = e.target.value.split('-').map(Number)
+                      const newD = new Date(date)
+                      newD.setFullYear(y, m - 1, d)
+                      setDate(newD)
+                    }
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    opacity: 0,
+                    cursor: 'pointer',
+                  }}
+                />
+              </label>
             </div>
           </div>
 
@@ -586,10 +679,13 @@ export default function AddSheet({ onClose }: AddSheetProps) {
                   justifyContent: 'center',
                   gap: 8,
                   minHeight: 'unset',
+                  opacity: saving ? 0.7 : 1,
                 }}
               >
                 <Check size={18} strokeWidth={2} />
-                Save {paise > 0 ? formatAmount(paise) : ''}
+                {editTxn
+                  ? (saving ? 'Updating…' : `Update ${paise > 0 ? formatAmount(paise) : 'Entry'}`)
+                  : (saving ? 'Saving…' : `Save ${paise > 0 ? formatAmount(paise) : ''}`)}
               </motion.button>
             </motion.div>
           )}
@@ -707,7 +803,7 @@ export default function AddSheet({ onClose }: AddSheetProps) {
         )}
 
         {/* ── Save button when keypad is hidden ── */}
-        {!showKeypad && paise > 0 && selectedCatId && (
+        {!showKeypad && paise > 0 && (selectedCatId || txType === 'transfer') && (
           <div
             style={{ padding: '0 16px calc(14px + env(safe-area-inset-bottom, 0px))' }}
             className="w-full min-w-0 flex-shrink-0"
@@ -715,6 +811,7 @@ export default function AddSheet({ onClose }: AddSheetProps) {
             <motion.button
               whileTap={{ scale: 0.97 }}
               onClick={handleSave}
+              disabled={saving}
               className="w-full min-w-0"
               style={{
                 width: '100%',
@@ -727,9 +824,12 @@ export default function AddSheet({ onClose }: AddSheetProps) {
                 fontSize: 15,
                 cursor: 'pointer',
                 minHeight: 'unset',
+                opacity: saving ? 0.7 : 1,
               }}
             >
-              Save {formatAmount(paise)}
+              {editTxn
+                ? (saving ? 'Updating…' : `Update ${formatAmount(paise)}`)
+                : (saving ? 'Saving…' : `Save ${formatAmount(paise)}`)}
             </motion.button>
           </div>
         )}
@@ -824,6 +924,90 @@ export default function AddSheet({ onClose }: AddSheetProps) {
                   style={{ flex: 1, padding: '10px', background: 'var(--primary)', border: 'none', borderRadius: 'var(--radius-md)', color: 'var(--primary-contrast)', fontWeight: 600, cursor: 'pointer', fontSize: 14, minHeight: 'unset' }}
                 >
                   Add anyway
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── Delete Confirmation Sheet ── */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <>
+            <motion.div
+              className="sheet-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              style={{ zIndex: 60 }}
+              onClick={() => setShowDeleteConfirm(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 16, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.96 }}
+              style={{
+                position: 'fixed',
+                bottom: 'calc(32px + var(--safe-bottom))',
+                left: 0,
+                right: 0,
+                margin: '0 auto',
+                width: 'calc(100% - 32px)',
+                maxWidth: 440,
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-lg)',
+                padding: 24,
+                zIndex: 65,
+                textAlign: 'center',
+                boxShadow: 'var(--shadow-md)',
+                boxSizing: 'border-box',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12, color: 'var(--expense)' }}>
+                <AlertTriangle size={32} />
+              </div>
+              <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 8, color: 'var(--text)' }}>Delete Entry?</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
+                Are you sure you want to permanently delete this entry? This action cannot be undone.
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: 'var(--surface-2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--text)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    minHeight: 'unset',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteTransaction}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: 'var(--expense)',
+                    border: 'none',
+                    borderRadius: 'var(--radius-md)',
+                    color: '#fff',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    minHeight: 'unset',
+                  }}
+                >
+                  Delete
                 </button>
               </div>
             </motion.div>

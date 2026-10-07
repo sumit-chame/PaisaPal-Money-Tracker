@@ -22,7 +22,7 @@ const TAB_ITEMS: { id: TabId; label: string; Icon: React.FC<{ size?: number }> }
 ]
 
 export default function AppShell() {
-  const { activeTab, setActiveTab, isAddSheetOpen, openAddSheet, closeAddSheet } = useNavStore()
+  const { activeTab, setActiveTab, isAddSheetOpen, editingTransaction, openAddSheet, closeAddSheet } = useNavStore()
   const { loadSettings } = useSettingsStore()
   const { _syncResolved } = useThemeStore()
   const { isIosModalOpen, setIsIosModalOpen, initPwa } = usePwaStore()
@@ -115,7 +115,7 @@ export default function AppShell() {
           <motion.button
             id="add-transaction-btn"
             aria-label="Add transaction"
-            onClick={openAddSheet}
+            onClick={() => openAddSheet()}
             whileTap={{ scale: 0.9 }}
             whileHover={{ scale: 1.05 }}
             style={{
@@ -148,7 +148,7 @@ export default function AppShell() {
       <AnimatePresence>
         {isAddSheetOpen && (
           <React.Suspense fallback={null}>
-            <AddSheet onClose={closeAddSheet} />
+            <AddSheet onClose={closeAddSheet} editTxn={editingTransaction} />
           </React.Suspense>
         )}
       </AnimatePresence>

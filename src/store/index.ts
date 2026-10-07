@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { db } from '../lib/db'
-import type { ThemeMode, Settings } from '../lib/db'
+import type { ThemeMode, Settings, Transaction } from '../lib/db'
 
 /* ─── Theme Store ─────────────────────────── */
 
@@ -74,17 +74,22 @@ export type TabId = 'home' | 'insights' | 'add' | 'budgets' | 'me'
 interface NavState {
   activeTab: TabId
   isAddSheetOpen: boolean
+  editingTransaction: Transaction | null
   setActiveTab: (t: TabId) => void
-  openAddSheet: () => void
+  openAddSheet: (txn?: unknown) => void
   closeAddSheet: () => void
 }
 
 export const useNavStore = create<NavState>((set) => ({
   activeTab: 'home',
   isAddSheetOpen: false,
+  editingTransaction: null,
   setActiveTab: (t) => set({ activeTab: t }),
-  openAddSheet: () => set({ isAddSheetOpen: true }),
-  closeAddSheet: () => set({ isAddSheetOpen: false }),
+  openAddSheet: (txn) => {
+    const isTxn = Boolean(txn && typeof txn === 'object' && 'id' in (txn as object) && 'amount' in (txn as object))
+    set({ isAddSheetOpen: true, editingTransaction: isTxn ? (txn as Transaction) : null })
+  },
+  closeAddSheet: () => set({ isAddSheetOpen: false, editingTransaction: null }),
 }))
 
 /* ─── Toast Store ─────────────────────────── */

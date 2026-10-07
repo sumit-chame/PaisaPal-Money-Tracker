@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Lock, Mail, User, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../lib/auth/store';
-import { useToastStore } from '../../store';
+import { useToastStore, useNavStore } from '../../store';
 
 interface AuthSheetProps {
   onClose: () => void;
@@ -18,8 +18,10 @@ export default function AuthSheet({ onClose, initialTab = 'login' }: AuthSheetPr
 
   const { login, register, isLoading, clearError } = useAuthStore();
   const { addToast } = useToastStore();
+  const { setActiveTab } = useNavStore();
 
   const handleTabSwitch = (newTab: 'login' | 'register') => {
+    if (isLoading) return;
     setTab(newTab);
     setInlineError(null);
     clearError();
@@ -27,11 +29,12 @@ export default function AuthSheet({ onClose, initialTab = 'login' }: AuthSheetPr
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return; // Prevent duplicate concurrent submissions
     setInlineError(null);
 
     const trimmedEmail = email.trim();
     if (!trimmedEmail) {
-      setInlineError('Email is required');
+      setInlineError('Email address is required');
       return;
     }
 
@@ -43,7 +46,7 @@ export default function AuthSheet({ onClose, initialTab = 'login' }: AuthSheetPr
     if (tab === 'register') {
       const trimmedName = name.trim();
       if (!trimmedName) {
-        setInlineError('Please enter your name');
+        setInlineError('Please enter your full name');
         return;
       }
 
@@ -51,14 +54,16 @@ export default function AuthSheet({ onClose, initialTab = 'login' }: AuthSheetPr
       if (res.ok) {
         addToast({ message: `Welcome to PaisaPal, ${trimmedName}!`, type: 'success' });
         onClose();
+        setActiveTab('home'); // Redirect to dashboard / home
       } else {
-        setInlineError(res.error || 'Registration failed');
+        setInlineError(res.error || 'Failed to create account. Please try again.');
       }
     } else {
       const res = await login(trimmedEmail, password);
       if (res.ok) {
         addToast({ message: 'Signed in successfully', type: 'success' });
         onClose();
+        setActiveTab('home'); // Redirect to dashboard / home
       } else {
         setInlineError(res.error || 'Invalid email or password');
       }
@@ -243,6 +248,7 @@ export default function AuthSheet({ onClose, initialTab = 'login' }: AuthSheetPr
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Rahul Sharma"
+                    disabled={isLoading}
                     required
                     style={{
                       width: '100%',
@@ -254,6 +260,7 @@ export default function AuthSheet({ onClose, initialTab = 'login' }: AuthSheetPr
                       fontSize: 16, // 16px to prevent mobile zoom
                       outline: 'none',
                       boxSizing: 'border-box',
+                      opacity: isLoading ? 0.7 : 1,
                     }}
                   />
                 </div>
@@ -274,6 +281,7 @@ export default function AuthSheet({ onClose, initialTab = 'login' }: AuthSheetPr
                   placeholder="name@example.com"
                   autoCapitalize="none"
                   autoCorrect="off"
+                  disabled={isLoading}
                   required
                   style={{
                     width: '100%',
@@ -285,6 +293,7 @@ export default function AuthSheet({ onClose, initialTab = 'login' }: AuthSheetPr
                     fontSize: 16, // 16px to prevent mobile zoom
                     outline: 'none',
                     boxSizing: 'border-box',
+                    opacity: isLoading ? 0.7 : 1,
                   }}
                 />
               </div>
@@ -302,6 +311,7 @@ export default function AuthSheet({ onClose, initialTab = 'login' }: AuthSheetPr
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
+                  disabled={isLoading}
                   required
                   style={{
                     width: '100%',
@@ -313,6 +323,7 @@ export default function AuthSheet({ onClose, initialTab = 'login' }: AuthSheetPr
                     fontSize: 16, // 16px to prevent mobile zoom
                     outline: 'none',
                     boxSizing: 'border-box',
+                    opacity: isLoading ? 0.7 : 1,
                   }}
                 />
               </div>

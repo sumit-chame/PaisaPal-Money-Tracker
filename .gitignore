@@ -68,3 +68,4 @@ temp/
 *.temp
 .eslintcache
 .stylelintcache
+.data/
